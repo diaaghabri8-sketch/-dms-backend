@@ -1,0 +1,30 @@
+# Déploiement Render (hébergement gratuit durable, voir SUIVI_PROJET.md) — service web Python
+# qui applique les migrations Alembic à chaque démarrage (idempotent : sans effet si la base est
+# déjà à jour) puis lance uvicorn. `sync: false` = valeur saisie manuellement dans le dashboard
+# Render à la création (jamais commitée ici, voir .env.example pour la liste complète).
+services:
+  - type: web
+    name: dms-backend
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: ACCOUNT_EMAIL_DOMAIN
+        value: dms.tn
+      - key: APPELS_OFFRES_MOTS_CLES
+        value: "respirateur,pousse-seringue,échographe,défibrillateur,moniteur,oxygénothérapie"
+      - key: APPELS_OFFRES_DELAI_SECONDES
+        value: "2.0"
+      - key: APPELS_OFFRES_SCAN_HEURE
+        value: "6"

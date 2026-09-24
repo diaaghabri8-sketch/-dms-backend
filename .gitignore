@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+# `*.db*` (pas juste `*.db`) : couvre aussi les sauvegardes locales type
+# dev_demo.db.backup_before_xxx (préfixe .db mais pas suffixe .db, donc `*.db` seul ne les
+# couvrait pas — corrigé le 2026-09-24 avant premier push GitHub, voir SUIVI_PROJET.md).
+*.db*
+.pytest_cache/
+.mypy_cache/
+storage/
