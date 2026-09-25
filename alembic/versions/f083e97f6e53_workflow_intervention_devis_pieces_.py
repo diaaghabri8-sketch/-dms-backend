@@ -62,19 +62,27 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['piece_detachee_id'], ['pieces_detachees.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.add_column('interventions', sa.Column('lieu_reparation', sa.Enum('sur_place', 'atelier', name='lieu_reparation'), nullable=True))
+    # `sa.Enum(...).create(...)` explicite avant chaque `add_column` (ajouté le 2026-09-25,
+    # bug trouvé au premier déploiement réel sur Supabase) : contrairement à `op.create_table`,
+    # `op.add_column` n'émet PAS automatiquement le `CREATE TYPE` d'un enum Postgres inline —
+    # sans ça, l'`ALTER TABLE ... ADD COLUMN` échoue avec `type "lieu_reparation" does not
+    # exist`. Sans effet sur SQLite (`Enum.create()` y est un no-op, pas de vrai type). Voir
+    # SUIVI_PROJET.md.
+    lieu_reparation_enum = sa.Enum('sur_place', 'atelier', name='lieu_reparation')
+    lieu_reparation_enum.create(op.get_bind(), checkfirst=True)
+    op.add_column('interventions', sa.Column('lieu_reparation', lieu_reparation_enum, nullable=True))
     op.add_column('interventions', sa.Column('description_panne', sa.Text(), nullable=True))
     # server_default explicite : NOT NULL sans défaut échouerait sur SQLite si la table
     # contient déjà des lignes (backfill requis). `default=` côté modèle SQLAlchemy est
     # ORM-only, pas vu par le ALTER TABLE — il faut le server_default ici.
+    statut_workflow_enum = sa.Enum(
+        'appel_recu', 'diagnostic_en_cours', 'diagnostic_termine', 'devis_en_preparation', 'devis_envoye',
+        'devis_accepte', 'devis_refuse', 'travail_en_cours', 'termine', 'annulee', name='statut_workflow',
+    )
+    statut_workflow_enum.create(op.get_bind(), checkfirst=True)
     op.add_column(
         'interventions',
-        sa.Column(
-            'statut_workflow',
-            sa.Enum('appel_recu', 'diagnostic_en_cours', 'diagnostic_termine', 'devis_en_preparation', 'devis_envoye', 'devis_accepte', 'devis_refuse', 'travail_en_cours', 'termine', 'annulee', name='statut_workflow'),
-            server_default='appel_recu',
-            nullable=False,
-        ),
+        sa.Column('statut_workflow', statut_workflow_enum, server_default='appel_recu', nullable=False),
     )
     # ### end Alembic commands ###
 
