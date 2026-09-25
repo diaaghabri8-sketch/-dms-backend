@@ -1,0 +1,52 @@
+# Empêche la pause automatique du projet Supabase gratuit (après 7 jours sans activité côté
+# base). Déclencheur volontairement EXTERNE (GitHub Actions, pas un job APScheduler interne au
+# backend) : Render (plan gratuit) met le service en veille après 15 min sans requête HTTP, donc
+# un job planifié interne ne tournerait pas pendant cette veille. Voir SUIVI_PROJET.md.
+#
+# Cron tous les 3 jours (large marge sous le seuil de 7 jours de Supabase, tolère un run manqué
+# sans risque). `workflow_dispatch` permet un déclenchement manuel pour vérifier.
+name: Keep-alive Supabase/Render
+
+on:
+  schedule:
+    - cron: "0 6 */3 * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping-health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Appelle GET /health/db (avec ré-essais, Render peut être en veille)
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          HEALTH_TOKEN: ${{ secrets.HEALTH_TOKEN }}
+        run: |
+          set -e
+          if [ -z "$BACKEND_URL" ] || [ -z "$HEALTH_TOKEN" ]; then
+            echo "::error::BACKEND_URL ou HEALTH_TOKEN manquant dans les secrets du dépôt."
+            exit 1
+          fi
+
+          attempt=1
+          max_attempts=3
+          until [ "$attempt" -gt "$max_attempts" ]; do
+            echo "Tentative $attempt/$max_attempts..."
+            http_code=$(curl -sS -o response.json -w "%{http_code}" \
+              --max-time 60 \
+              -H "X-Health-Token: $HEALTH_TOKEN" \
+              "$BACKEND_URL/health/db" || echo "000")
+
+            if [ "$http_code" = "200" ]; then
+              echo "OK (200) :"
+              cat response.json
+              exit 0
+            fi
+
+            echo "Échec (HTTP $http_code), réponse :"
+            cat response.json 2>/dev/null || true
+            attempt=$((attempt + 1))
+            [ "$attempt" -le "$max_attempts" ] && sleep 20
+          done
+
+          echo "::error::/health/db n'a jamais répondu 200 après $max_attempts tentatives."
+          exit 1

@@ -14,6 +14,7 @@ from app.routers import (
     equipements_reparation,
     evenements,
     formations,
+    health,
     interventions,
     intervention_workflow,
     messages,
@@ -64,6 +65,7 @@ app.include_router(equipements_reparation.router)
 app.include_router(notifications.router)
 app.include_router(appels_offres.router)
 app.include_router(ws_chat.router)
+app.include_router(health.router)
 
 
 @app.get("/health")

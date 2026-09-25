@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     def appels_offres_mots_cles_list(self) -> list[str]:
         return [m.strip() for m in self.APPELS_OFFRES_MOTS_CLES.split(",") if m.strip()]
 
+    # Token de /health/db (voir routers/health.py) — appelé périodiquement depuis l'extérieur
+    # (GitHub Actions) pour garder le projet Supabase actif (pause automatique après 7 jours
+    # sans activité côté DB). None = endpoint toujours refusé (jamais accessible sans config
+    # explicite), voir SUIVI_PROJET.md.
+    HEALTH_TOKEN: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
