@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_admin, require_admin_or_chef
@@ -21,7 +21,7 @@ from app.schemas.piece_necessaire import PieceNecessaireRead, PiecesNecessairesC
 from app.services.notifications import notifier, notifier_role
 from app.services.notify import notifier_technicien_devis_envoye
 from app.services.parc_sync import sync_equipements_vers_parc, synchroniser_statut_parc
-from app.services.pdf_workflow import generate_devis_pdf, generate_diagnostic_pdf
+from app.services.pdf_workflow import generate_devis_pdf_background, generate_diagnostic_pdf_background
 
 router = APIRouter(tags=["workflow-intervention"], dependencies=[Depends(get_current_user)])
 
@@ -79,6 +79,7 @@ def set_lieu_reparation(
 def set_diagnostic(
     intervention_id: str,
     payload: DiagnosticUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Technicien = Depends(get_current_user),
 ) -> Intervention:
@@ -98,7 +99,11 @@ def set_diagnostic(
     db.commit()
     db.refresh(intervention)
 
-    generate_diagnostic_pdf(db, intervention, genere_par_id=current_user.id)
+    # Génération PDF (ReportLab + I/O disque, plusieurs secondes) déplacée en tâche de fond :
+    # la réponse ne doit pas attendre dessus — latence remontée en test manuel réel sur l'app
+    # mobile (voir SUIVI_PROJET.md). Le document apparaîtra dans la liste quelques secondes
+    # après, jamais synchrone avec cette réponse.
+    background_tasks.add_task(generate_diagnostic_pdf_background, intervention.id, current_user.id)
 
     return intervention
 
@@ -256,6 +261,7 @@ def list_devis(
 async def create_devis(
     intervention_id: str,
     payload: DevisCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Technicien = Depends(require_admin),
 ) -> Devis:
@@ -289,7 +295,7 @@ async def create_devis(
     db.commit()
     db.refresh(devis)
 
-    generate_devis_pdf(db, intervention, devis, genere_par_id=current_user.id)
+    background_tasks.add_task(generate_devis_pdf_background, intervention.id, devis.id, current_user.id)
 
     # Le technicien assigné attend cette décision pour savoir s'il peut démarrer son travail —
     # notifié via la messagerie existante (voir app/services/notify.py).

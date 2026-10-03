@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -22,7 +22,7 @@ from app.schemas.equipement_reparation import (
 )
 from app.schemas.intervention import InterventionRead
 from app.services.notifications import notifier
-from app.services.pdf_workflow import generate_bon_restitution_pdf
+from app.services.pdf_workflow import generate_bon_restitution_pdf_background
 
 router = APIRouter(
     prefix="/equipements-reparation", tags=["equipements-reparation"], dependencies=[Depends(require_admin_or_chef)]
@@ -117,6 +117,7 @@ def list_equipements_rendus(db: Session = Depends(get_db)) -> list[EquipementRen
 def creer_restitution(
     equipement_id: int,
     payload: RestitutionCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Technicien = Depends(require_admin_or_chef),
 ) -> Intervention:
@@ -170,7 +171,7 @@ def creer_restitution(
         db.commit()
         db.refresh(intervention)
 
-        generate_bon_restitution_pdf(db, intervention, fiche, genere_par_id=current_user.id)
+        background_tasks.add_task(generate_bon_restitution_pdf_background, intervention.id, fiche.id, current_user.id)
 
         return intervention
 

@@ -27,6 +27,7 @@ diagnostic (`show_date=False`, document sans aucune date/heure affichée) ; touj
 sur devis et rapport_final.
 """
 
+import logging
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -37,12 +38,15 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 from sqlalchemy.orm import Session
 
 from app.core.config import STORAGE_DIR
+from app.database import SessionLocal
 from app.models.devis import Devis
 from app.models.equipement_reparation import EquipementAttenteReparation
 from app.models.intervention import Intervention
 from app.models.intervention_document import InterventionDocument, TypeDocument
 from app.models.piece_necessaire import PieceNecessaire
 from app.services.equipement_label import equipements_label
+
+logger = logging.getLogger(__name__)
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 LOGO_PATH = ASSETS_DIR / "logo-dms.png"
@@ -208,6 +212,24 @@ def generate_diagnostic_pdf(db: Session, intervention: Intervention, genere_par_
     return _save_pdf(db, intervention, TypeDocument.DIAGNOSTIC, filename, story, genere_par_id)
 
 
+def generate_diagnostic_pdf_background(intervention_id: str, genere_par_id: int) -> None:
+    """À appeler via `BackgroundTasks` (jamais directement) : la génération PDF (ReportLab,
+    I/O disque) prenait plusieurs secondes dans le chemin de la requête HTTP elle-même — latence
+    remontée en test manuel réel sur l'app mobile (voir SUIVI_PROJET.md). Ouvre sa PROPRE session
+    SQLAlchemy : celle de la requête d'origine est fermée dès que la réponse est envoyée, bien
+    avant qu'une tâche de fond ne s'exécute — jamais réutiliser `db` du endpoint ici."""
+    db = SessionLocal()
+    try:
+        intervention = db.get(Intervention, intervention_id)
+        if intervention is None:
+            return
+        generate_diagnostic_pdf(db, intervention, genere_par_id)
+    except Exception:
+        logger.exception("Échec génération PDF diagnostic (intervention %s)", intervention_id)
+    finally:
+        db.close()
+
+
 def generate_devis_pdf(db: Session, intervention: Intervention, devis: Devis, genere_par_id: int) -> InterventionDocument:
     story: list = []
     _header(story, f"Devis n°{devis.id}", intervention)
@@ -261,6 +283,21 @@ def generate_devis_pdf(db: Session, intervention: Intervention, devis: Devis, ge
 
     filename = f"devis_{devis.id}_{intervention.id}.pdf"
     return _save_pdf(db, intervention, TypeDocument.DEVIS, filename, story, genere_par_id)
+
+
+def generate_devis_pdf_background(intervention_id: str, devis_id: int, genere_par_id: int) -> None:
+    """Variante `BackgroundTasks` — voir `generate_diagnostic_pdf_background`."""
+    db = SessionLocal()
+    try:
+        intervention = db.get(Intervention, intervention_id)
+        devis = db.get(Devis, devis_id)
+        if intervention is None or devis is None:
+            return
+        generate_devis_pdf(db, intervention, devis, genere_par_id)
+    except Exception:
+        logger.exception("Échec génération PDF devis (intervention %s, devis %s)", intervention_id, devis_id)
+    finally:
+        db.close()
 
 
 def generate_rapport_final_pdf(db: Session, intervention: Intervention, genere_par_id: int) -> InterventionDocument:
@@ -321,6 +358,20 @@ def generate_rapport_final_pdf(db: Session, intervention: Intervention, genere_p
     return _save_pdf(db, intervention, TypeDocument.RAPPORT_FINAL, filename, story, genere_par_id)
 
 
+def generate_rapport_final_pdf_background(intervention_id: str, genere_par_id: int) -> None:
+    """Variante `BackgroundTasks` — voir `generate_diagnostic_pdf_background`."""
+    db = SessionLocal()
+    try:
+        intervention = db.get(Intervention, intervention_id)
+        if intervention is None:
+            return
+        generate_rapport_final_pdf(db, intervention, genere_par_id)
+    except Exception:
+        logger.exception("Échec génération PDF rapport final (intervention %s)", intervention_id)
+    finally:
+        db.close()
+
+
 def _cadre_signature() -> Table:
     """Cadre vide pour la signature et le cachet du client, à remplir à la main sur le document
     imprimé — aligné à droite en fin de document, seul flowable de ce type dans ce module (les 3
@@ -377,3 +428,18 @@ def generate_bon_restitution_pdf(
 
     filename = f"bon_restitution_{intervention.id}.pdf"
     return _save_pdf(db, intervention, TypeDocument.BON_RESTITUTION, filename, story, genere_par_id)
+
+
+def generate_bon_restitution_pdf_background(intervention_id: str, fiche_id: int, genere_par_id: int) -> None:
+    """Variante `BackgroundTasks` — voir `generate_diagnostic_pdf_background`."""
+    db = SessionLocal()
+    try:
+        intervention = db.get(Intervention, intervention_id)
+        fiche = db.get(EquipementAttenteReparation, fiche_id)
+        if intervention is None or fiche is None:
+            return
+        generate_bon_restitution_pdf(db, intervention, fiche, genere_par_id)
+    except Exception:
+        logger.exception("Échec génération bon de restitution (intervention %s, fiche %s)", intervention_id, fiche_id)
+    finally:
+        db.close()

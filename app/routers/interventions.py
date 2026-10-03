@@ -2,7 +2,7 @@ import re
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -20,7 +20,7 @@ from app.schemas.intervention import InterventionCreate, InterventionRead
 from app.schemas.intervention_photo import InterventionPhotoRead
 from app.services.notifications import notifier, notifier_role
 from app.services.parc_sync import synchroniser_statut_parc
-from app.services.pdf_workflow import generate_rapport_final_pdf
+from app.services.pdf_workflow import generate_rapport_final_pdf_background
 
 router = APIRouter(prefix="/interventions", tags=["interventions"], dependencies=[Depends(get_current_user)])
 
@@ -114,6 +114,7 @@ def create_intervention(
 @router.patch("/{intervention_id}", response_model=InterventionRead)
 async def update_intervention(
     intervention_id: str,
+    background_tasks: BackgroundTasks,
     date_heure: datetime | None = Form(None),
     lieu: str | None = Form(None),
     type: TypeIntervention | None = Form(None),
@@ -244,7 +245,7 @@ async def update_intervention(
     db.refresh(intervention)
 
     if should_generate_rapport_final:
-        generate_rapport_final_pdf(db, intervention, genere_par_id=current_user.id)
+        background_tasks.add_task(generate_rapport_final_pdf_background, intervention.id, current_user.id)
 
     return intervention
 
